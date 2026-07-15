@@ -42,6 +42,8 @@ interface SettingsEntry {
   alwaysChanged?: true;
   /** Included in fallback  */
   useInFallbackForm?: true;
+  /** Skip empty or whitespace-only values for string fields where blank has no valid meaning. */
+  skipBlankInbound?: true;
 }
 
 const AUTH_METHOD_MAP: Record<string, string> = {
@@ -123,6 +125,7 @@ export const SETTINGS_REGISTRY: Record<GlobalLsKeyValue, SettingsEntry> = {
     vscodeKey: ADVANCED_CLI_BASE_DOWNLOAD_URL,
     resolve: c => c.getCliBaseDownloadUrl(),
     useInFallbackForm: true,
+    skipBlankInbound: true,
   },
   [LS_GLOBAL_KEY.cliPath]: {
     vscodeKey: ADVANCED_CLI_PATH,
@@ -312,10 +315,12 @@ export function mapConfigToSettings(config: HtmlSettingsData): Record<string, un
  * Maps inbound LS global settings directly to VS Code settings.
  * Entries without a vscodeKey (token, sendErrorReports, etc.) are skipped.
  *
- * The LS is the source of truth: every reported value is persisted. The IDE keeps the
- * LS's view authoritative by sending user overrides as `changed: true` (tracked from
- * activation onward, even while the LS is down), so the LS resolves and echoes the
- * user's value rather than its own default.
+ * The LS is the source of truth: every reported value is persisted, except null/undefined
+ * (nothing to write) and blank strings for keys marked `skipBlankInbound` (where blank has no
+ * valid meaning). The IDE keeps the LS's view authoritative by sending user overrides as
+ * `changed: true`. Because those overrides are tracked via VS Code configuration events and
+ * persisted in the extension's global state — independently of the LS process — edits made
+ * while the LS is down are still captured and flagged on the next push.
  */
 export function mapLspSettingsToVscodeSettings(
   globalSettings: Record<string, LspConfigSetting>,
@@ -327,6 +332,8 @@ export function mapLspSettingsToVscodeSettings(
 
     const value = globalSettings[lsKey]?.value;
     if (value === undefined || value === null) continue;
+    // Skip empty or whitespace-only values for string fields where blank has no valid meaning.
+    if (entry.skipBlankInbound && typeof value === 'string' && value.trim() === '') continue;
 
     setOrMerge(result, entry.vscodeKey, entry.toVscodeValue ? entry.toVscodeValue(value) : value);
   }
